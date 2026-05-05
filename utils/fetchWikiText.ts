@@ -1,25 +1,31 @@
 /**
- * Utility to fetch a random meaningful paragraph from Wikipedia using MediaWiki REST API.
- * Supports multiple languages by changing the subdomain (e.g., 'vi', 'en').
+ * Utility to fetch a random meaningful page summary from Wikipedia.
+ * Reverted to REST API for more coherent and concise summaries.
  */
 
-export interface WikiSummary {
+export interface WikiPageData {
   title: string;
   extract: string;
   description?: string;
+  thumbnail?: {
+    source: string;
+    width: number;
+    height: number;
+  };
   content_urls?: {
     desktop: {
       page: string;
     };
   };
+  lang: string;
 }
 
-export async function fetchWikiText(lang: string = 'vi'): Promise<string> {
+export async function fetchWikiPage(lang: string = 'vi'): Promise<WikiPageData | null> {
   try {
     const response = await fetch(
       `https://${lang}.wikipedia.org/api/rest_v1/page/random/summary`,
       {
-        next: { revalidate: 0 }, // Ensure we get a fresh random page
+        next: { revalidate: 0 },
       }
     );
 
@@ -27,25 +33,35 @@ export async function fetchWikiText(lang: string = 'vi'): Promise<string> {
       throw new Error(`Wikipedia API error: ${response.statusText}`);
     }
 
-    const data: WikiSummary = await response.json();
+    const data = await response.json();
     
-    // Clean the text:
-    // 1. Remove parenthetical content like (IPA: /.../) or (born 19xx)
-    // 2. Remove extra spaces
-    let cleanText = data.extract
-      .replace(/\s*\([^)]*\)/g, '') // Remove (text in parentheses)
+    // Clean text for typing area
+    let cleanExtract = data.extract
+      .replace(/\s*\([^)]*\)/g, '') // Remove (brackets)
       .replace(/\s*\[[^\]]*\]/g, '') // Remove [citations]
-      .replace(/\s+/g, ' ')         // Normalize spaces
-      .trim();
+      .replace(/\u00AD/g, '')       // Remove soft hyphens
+      .replace(/\s+/g, ' ')         // Normalize whitespace
+      .trim()
+      .normalize('NFC');            // Crucial for Vietnamese comparison
 
-    // If the text is too short or failed to clean properly, try again
-    if (cleanText.length < 50) {
-      return fetchWikiText(lang);
+    // Ensure a reasonable length for a typing test
+    // Not too short, not too long
+    const MIN_LENGTH = 150;
+    
+    if (cleanExtract.length < MIN_LENGTH) {
+      return fetchWikiPage(lang);
     }
 
-    return cleanText;
+    return {
+      title: data.title,
+      extract: cleanExtract,
+      description: data.description,
+      thumbnail: data.thumbnail,
+      content_urls: data.content_urls,
+      lang: lang
+    };
   } catch (error) {
-    console.error('Failed to fetch Wiki text:', error);
-    return "Lỗi khi tải văn bản từ Wikipedia. Vui lòng kiểm tra kết nối mạng hoặc thử lại sau.";
+    console.error('Failed to fetch Wiki page:', error);
+    return null;
   }
 }

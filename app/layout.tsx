@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
-import { Roboto_Mono } from "next/font/google";
+import { VT323 } from "next/font/google";
 import "./globals.css";
 
-const robotoMono = Roboto_Mono({
+const vt323 = VT323({
   subsets: ["latin", "vietnamese"],
-  weight: ["400", "700"],
-  variable: "--font-roboto-mono",
+  weight: ["400"],
+  variable: "--font-vt323",
 });
 
 export const metadata: Metadata = {
-  title: "TypeFlow | Kiểm tra tốc độ gõ phím chuyên nghiệp",
-  description: "Ứng dụng kiểm tra tốc độ gõ phím đa ngôn ngữ sử dụng dữ liệu từ Wikipedia.",
+  title: "TypeFlow | Pixel Art Typing Test",
+  description: "Ứng dụng kiểm tra tốc độ gõ phím phong cách Pixel Art sử dụng dữ liệu từ Wikipedia.",
 };
 
 export default function RootLayout({
@@ -19,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`${robotoMono.variable} antialiased`}>
-      <body className="font-mono">{children}</body>
+    <html lang="vi" className={`${vt323.variable} antialiased`} style={{ colorScheme: 'dark' }}>
+      <body className="font-pixel bg-background text-foreground selection:bg-primary selection:text-white">{children}</body>
     </html>
   );
 }

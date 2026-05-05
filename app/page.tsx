@@ -1,70 +1,218 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { fetchWikiText } from '@/utils/fetchWikiText';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchWikiPage, WikiPageData } from '@/utils/fetchWikiText';
+import { VirtualKeyboard } from '@/components/Keyboard/Visualizer';
 
 export default function Home() {
-  const [text, setText] = useState<string>('');
+  const [wikiData, setWikiData] = useState<WikiPageData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [language, setLanguage] = useState<string>('vi');
-  const [stats, setStats] = useState({ wpm: 0, acc: 0, time: 30 });
+  
+  const [userInput, setUserInput] = useState<string>('');
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [isStarted, setIsStarted] = useState<boolean>(false);
+  const [finished, setFinished] = useState<boolean>(false);
+  const [timeLeft, setTimeLeft] = useState<number>(30);
+  const [stats, setStats] = useState({ wpm: 0, acc: 0 });
+  
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const loadNewText = async () => {
+  const loadNewText = useCallback(async () => {
     setLoading(true);
+    setFinished(false);
+    setUserInput('');
+    setStartTime(null);
+    setIsStarted(false);
+    setTimeLeft(30);
+    setStats({ wpm: 0, acc: 0 });
+    
+    if (timerRef.current) clearInterval(timerRef.current);
+
     try {
-      const newText = await fetchWikiText(language);
-      setText(newText || "Không thể tải văn bản. Vui lòng thử lại.");
+      const data = await fetchWikiPage(language);
+      setWikiData(data);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     } catch (err) {
-      setText("Lỗi kết nối API Wikipedia.");
+      console.error(err);
     } finally {
       setLoading(false);
+    }
+  }, [language]);
+
+
+  useEffect(() => {
+    loadNewText();
+  }, [loadNewText]);
+
+  useEffect(() => {
+    if (isStarted && timeLeft > 0 && !finished) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            finishTest();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isStarted, finished]);
+
+  const finishTest = () => {
+    setFinished(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const calculateStats = useCallback((input: string) => {
+    if (!wikiData) return;
+    
+    // Normalize both for comparison to handle different Vietnamese IMEs
+    const normalizedInput = input.normalize('NFC');
+    const targetText = wikiData.extract.normalize('NFC');
+    
+    let correctChars = 0;
+    const compareLength = Math.min(normalizedInput.length, targetText.length);
+    for (let i = 0; i < compareLength; i++) {
+      if (normalizedInput[i] === targetText[i]) {
+        correctChars++;
+      }
+    }
+
+    const acc = normalizedInput.length > 0 ? Math.round((correctChars / normalizedInput.length) * 100) : 0;
+    let wpm = 0;
+    if (startTime) {
+      const timeElapsedMinutes = (Date.now() - startTime) / 60000;
+      if (timeElapsedMinutes > 0) {
+        wpm = Math.round((correctChars / 5) / timeElapsedMinutes);
+      }
+    }
+    setStats({ wpm, acc });
+  }, [wikiData, startTime]);
+
+  useEffect(() => {
+    calculateStats(userInput);
+    
+    // Auto-scroll to caret (Vertical Only)
+    const caretElement = document.querySelector('.caret') as HTMLElement;
+    const workspace = document.querySelector('.typing-workspace') as HTMLElement;
+    
+    if (caretElement && workspace) {
+      const caretTop = caretElement.offsetTop;
+      const workspaceHeight = workspace.offsetHeight;
+      const scrollThreshold = workspaceHeight / 2;
+
+      if (caretTop > scrollThreshold) {
+        workspace.scrollTo({
+          top: caretTop - scrollThreshold,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [userInput, calculateStats]);
+
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const rawValue = e.currentTarget.value;
+    
+    if (finished || loading || !wikiData) {
+      e.currentTarget.value = '';
+      return;
+    }
+    
+    if (!isStarted && rawValue.length > 0) {
+      setIsStarted(true);
+      setStartTime(Date.now());
+    }
+
+    // Always normalize input to NFC for consistent internal state
+    const normalizedValue = rawValue.normalize('NFC');
+    setUserInput(normalizedValue);
+    calculateStats(normalizedValue);
+
+    if (normalizedValue.length >= wikiData.extract.length) {
+      finishTest();
     }
   };
 
   useEffect(() => {
-    loadNewText();
-  }, [language]);
+    const handleGlobalKeys = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        loadNewText();
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const langs = ['vi', 'en', 'ja'];
+        const nextIdx = (langs.indexOf(language) + 1) % langs.length;
+        setLanguage(langs[nextIdx]);
+      }
+      if (!finished && !loading) {
+        inputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeys);
+    return () => window.removeEventListener('keydown', handleGlobalKeys);
+  }, [language, finished, loading, loadNewText]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground relative overflow-hidden">
+    <div 
+      className="min-h-screen flex flex-col bg-background text-foreground relative font-pixel overflow-hidden"
+      onClick={() => inputRef.current?.focus()}
+    >
+      <textarea
+        ref={inputRef}
+        onInput={handleInput}
+        className="fixed left-0 top-0 w-full h-full opacity-0 cursor-default resize-none z-0"
+        autoFocus
+        spellCheck={false}
+        autoComplete="off"
+        aria-hidden="true"
+      />
       
-      {/* Top Header - Wide Layout */}
-      <header className="w-full max-w-[1400px] mx-auto px-6 py-8 flex justify-between items-center z-20">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.4)]">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      {/* Top Header */}
+      <header className="w-full max-w-[1200px] mx-auto px-6 py-10 flex justify-between items-center z-20 pointer-events-none">
+        <div className="flex items-center gap-6">
+          <div className="w-14 h-14 bg-primary border-4 border-black shadow-[4px_4px_0px_#000] flex items-center justify-center">
+            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M13 2H6v11h3v9l9-12h-5l3-8z" />
             </svg>
           </div>
-          <div>
-            <h1 className="text-2xl font-black italic tracking-tighter text-white">SWIFTTYPE</h1>
-            <p className="text-[9px] uppercase tracking-[0.4em] text-sub font-bold">Neural Engine v2.6</p>
+          <div className="pointer-events-auto">
+            <h1 className="text-4xl font-bold tracking-tighter text-white uppercase" style={{ textShadow: '4px 4px 0px #000' }}>TYPEFLOW</h1>
+            <p className="text-xs text-secondary font-bold uppercase tracking-widest mt-1">Retro Neural Engine v2.6</p>
           </div>
         </div>
 
-        <div className="flex gap-16 items-center">
-          <div className="flex gap-12">
+        <div className="flex gap-12 items-center pointer-events-auto">
+          <div className="flex gap-10" aria-label="Typing statistics">
             {[
               { label: 'WPM', value: stats.wpm, color: 'text-primary' },
-              { label: 'ACCURACY', value: `${stats.acc}%`, color: 'text-secondary' },
-              { label: 'TIMER', value: `${stats.time}s`, color: 'text-white' },
+              { label: 'ACC', value: stats.acc + '%', color: 'text-secondary' },
+              { label: 'TIME', value: timeLeft + 'S', color: 'text-white' },
             ].map((item, i) => (
               <div key={i} className="flex flex-col items-center">
-                <span className="text-[10px] font-black text-sub tracking-widest uppercase mb-1">{item.label}</span>
-                <span className={`text-3xl font-mono font-bold ${item.color} tabular-nums`}>{item.value}</span>
+                <span className="text-xs font-bold text-sub uppercase mb-1">{item.label}</span>
+                <span className={`text-4xl font-bold ${item.color} tabular-nums`} style={{ textShadow: '2px 2px 0px #000' }}>{item.value}</span>
               </div>
             ))}
           </div>
           
-          <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 backdrop-blur-md">
+          <div className="flex bg-black border-4 border-black shadow-[4px_4px_0px_rgba(0,0,0,0.5)]">
             {['vi', 'en', 'ja'].map((lang) => (
               <button
                 key={lang}
                 onClick={() => setLanguage(lang)}
-                className={`px-5 py-2.5 rounded-xl text-[11px] font-black tracking-widest uppercase transition-all ${
+                className={`px-6 py-2 text-sm font-bold uppercase transition-all ${
                   language === lang 
-                    ? 'bg-primary text-white shadow-lg' 
-                    : 'text-sub hover:text-white'
+                    ? 'bg-primary text-white' 
+                    : 'text-sub hover:text-white hover:bg-white/5'
                 }`}
               >
                 {lang}
@@ -74,66 +222,98 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Workspace - Shifted up slightly for better ergonomics */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 -mt-20">
-        <div className="w-full max-w-5xl flex flex-col gap-10 items-center">
+      {/* Main Workspace */}
+      <main className="flex-1 flex flex-col items-center justify-center w-full px-6 z-10 -mt-10 pointer-events-none">
+        <div className="w-full max-w-[1200px] flex flex-col gap-12 items-center">
           
-          <div className="typing-workspace w-full p-12 md:p-20 min-h-[400px] flex items-center justify-center relative overflow-hidden shadow-2xl">
-            {/* Background Glows */}
-            <div className="absolute top-0 right-0 w-80 h-80 bg-primary/10 rounded-full blur-[120px] -mr-40 -mt-40"></div>
-            <div className="absolute bottom-0 left-0 w-80 h-80 bg-secondary/10 rounded-full blur-[120px] -ml-40 -mb-40"></div>
-
+          <div 
+            className="typing-workspace w-full px-12 md:px-24 py-12 md:py-16 h-[400px] flex flex-col items-center relative overflow-y-auto custom-scrollbar pointer-events-auto"
+            aria-live="polite"
+          >
             {loading ? (
-              <div className="flex flex-col items-center gap-6">
-                <div className="w-12 h-12 border-2 border-white/10 border-t-primary rounded-full animate-spin"></div>
-                <span className="text-xs font-bold text-sub tracking-[0.5em] uppercase animate-pulse">Syncing Wikipedia Context</span>
+              <div className="flex-1 w-full flex flex-col items-center justify-center gap-6" role="status">
+                <div className="w-16 h-16 border-8 border-white/10 border-t-primary animate-[spin_1s_steps(8)_infinite]"></div>
+                <span className="text-xl font-bold text-primary tracking-widest uppercase animate-pulse">Syncing Wikipedia Context…</span>
               </div>
             ) : (
-              <div className="relative w-full text-center">
-                <div className="font-mono text-2xl md:text-4xl leading-[1.8] opacity-90 text-white/80">
-                  <span className="caret"></span>
-                  {text.split('').map((char, index) => (
-                    <span key={index} className="char-untyped">
-                      {char}
-                    </span>
-                  ))}
-                </div>
+              <div className="relative w-full text-left">
+                {finished ? (
+                  <div className="flex-1 w-full flex flex-col items-center justify-center gap-6 min-h-[300px] animate-in fade-in zoom-in duration-500">
+                    <h2 className="text-6xl font-bold text-secondary uppercase" style={{ textShadow: '4px 4px 0px #000' }}>Test Complete!</h2>
+                    <div className="flex gap-16 mt-4">
+                      <div className="flex flex-col items-center">
+                        <span className="text-sm text-sub uppercase">Final Speed</span>
+                        <span className="text-7xl font-bold text-primary">{stats.wpm} WPM</span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-sm text-sub uppercase">Accuracy</span>
+                        <span className="text-7xl font-bold text-secondary">{stats.acc}%</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={loadNewText}
+                      className="pixel-btn mt-8 text-xl px-12 py-4 bg-primary text-white"
+                    >
+                      TRY AGAIN (ESC)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-4xl md:text-5xl leading-[1.6] text-white/80 select-none text-left whitespace-pre-wrap break-words w-full">
+                    {wikiData?.extract.split('').map((char, index) => {
+                      const isCurrent = index === userInput.length;
+                      let colorClass = 'char-untyped';
+                      if (index < userInput.length) {
+                        colorClass = userInput[index] === char ? 'char-correct' : 'char-incorrect';
+                      }
+                      return (
+                        <span key={index} className={`relative ${colorClass}`}>{isCurrent && <span className="caret absolute left-0 top-[10%]"></span>}{char}</span>
+                      );
+                    })}
+                    {userInput.length === wikiData?.extract.length && (
+                      <span className="relative">
+                        <span className="caret absolute left-0 top-[10%]"></span>
+                        {' '}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
-          
-          {/* Action & Tips */}
-          <div className="w-full flex justify-between items-center text-[10px] font-bold text-sub uppercase tracking-[0.3em]">
-            <div className="flex gap-12 items-center">
-              <span className="flex items-center gap-3">
-                <kbd className="bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 text-white font-sans">ESC</kbd> RESTART TEST
-              </span>
-              <span className="flex items-center gap-3">
-                <kbd className="bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 text-white font-sans">TAB</kbd> NEXT LANGUAGE
-              </span>
+
+          {!finished && (
+            <div className="w-full flex flex-col items-center gap-10">
+              <div className="pixel-card p-10 flex flex-col items-center w-full max-w-5xl pointer-events-auto">
+                <VirtualKeyboard />
+                
+                <div className="w-full mt-10 pt-10 border-t-4 border-black/20 flex justify-between items-center text-xs font-bold text-sub uppercase">
+                  <div className="flex gap-10 items-center">
+                    <span className="flex items-center gap-3">
+                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">ESC</kbd> RESTART
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">TAB</kbd> LANGUAGE
+                    </span>
+                  </div>
+                  
+                  <button
+                    onClick={loadNewText}
+                    className="pixel-btn text-white flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                    </svg>
+                    <span>REBOOT ENGINE</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            
-            <button
-              onClick={loadNewText}
-              className="flex items-center gap-3 text-primary hover:text-white transition-colors group"
-            >
-              <svg className="w-5 h-5 group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>Recalibrate Engine</span>
-            </button>
-          </div>
+          )}
         </div>
       </main>
 
-      {/* Background Mesh Overlay */}
-      <div className="fixed inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-[20%] left-[10%] w-[30%] h-[30%] bg-primary/20 rounded-full blur-[150px]"></div>
-        <div className="absolute bottom-[20%] right-[10%] w-[30%] h-[30%] bg-secondary/20 rounded-full blur-[150px]"></div>
-      </div>
-
-      <footer className="w-full py-6 text-center text-[9px] font-bold text-sub/20 uppercase tracking-[0.8em] mt-auto z-20">
-        Designed for High Performance & Zen Focus
+      <footer className="w-full py-6 text-center text-[10px] font-bold text-sub/30 uppercase tracking-[0.5em] mt-auto">
+        TypeFlow // 8-Bit High-Performance Typing Studio
       </footer>
     </div>
   );
