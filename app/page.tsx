@@ -104,7 +104,7 @@ export default function Home() {
     if (timerRef.current) clearInterval(timerRef.current);
     setStats(prev => {
       const e = { wpm: prev.wpm, acc: prev.acc, date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-      setHistory(h => { const n = [e, ...h].slice(0, 10); localStorage.setItem('tf_history', JSON.stringify(n)); return n; });
+      setHistory(h => { const n = [e, ...h].slice(0, 6); localStorage.setItem('tf_history', JSON.stringify(n)); return n; });
       return prev;
     });
   }, []);
@@ -325,9 +325,9 @@ export default function Home() {
           <div style={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.25em', color: SK.sub, paddingBottom: 8 }}>
             Recent Sessions
           </div>
-          <div style={{ ...panel, flex: 1, overflow: 'hidden', gap: '1rem' }}>
+          <div style={{ ...panel, flex: 1, overflow: 'hidden', gap: '1rem', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {history.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflow: 'auto', height: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', flex: 1, paddingRight: 2 }}>
                 {history.map((h, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.875rem 1rem', background: `rgba(0,0,0,0.12)`, border: `1px solid ${SK.border}`, borderRadius: '0.75rem' }}>
                     <div>
