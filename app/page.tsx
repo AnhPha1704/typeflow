@@ -2,22 +2,22 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchWikiPage, WikiPageData } from '@/utils/fetchWikiText';
-import { VirtualKeyboard } from '@/components/Keyboard/Visualizer';
 
 export default function Home() {
   const [wikiData, setWikiData] = useState<WikiPageData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [language, setLanguage] = useState<string>('vi');
-  
   const [userInput, setUserInput] = useState<string>('');
   const [startTime, setStartTime] = useState<number | null>(null);
   const [isStarted, setIsStarted] = useState<boolean>(false);
   const [finished, setFinished] = useState<boolean>(false);
-  const [timeLeft, setTimeLeft] = useState<number>(30);
+  const [timeLeft, setTimeLeft] = useState<number>(60);
   const [stats, setStats] = useState({ wpm: 0, acc: 0 });
-  
+  const [hasError, setHasError] = useState(false);
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const typingAreaRef = useRef<HTMLDivElement>(null);
 
   const loadNewText = useCallback(async () => {
     setLoading(true);
@@ -25,11 +25,10 @@ export default function Home() {
     setUserInput('');
     setStartTime(null);
     setIsStarted(false);
-    setTimeLeft(30);
+    setTimeLeft(60);
     setStats({ wpm: 0, acc: 0 });
-    
+    setHasError(false);
     if (timerRef.current) clearInterval(timerRef.current);
-
     try {
       const data = await fetchWikiPage(language);
       setWikiData(data);
@@ -44,26 +43,18 @@ export default function Home() {
     }
   }, [language]);
 
-
-  useEffect(() => {
-    loadNewText();
-  }, [loadNewText]);
+  useEffect(() => { loadNewText(); }, [loadNewText]);
 
   useEffect(() => {
     if (isStarted && timeLeft > 0 && !finished) {
       timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            finishTest();
-            return 0;
-          }
+        setTimeLeft(prev => {
+          if (prev <= 1) { finishTest(); return 0; }
           return prev - 1;
         });
       }, 1000);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isStarted, finished]);
 
   const finishTest = () => {
@@ -73,148 +64,138 @@ export default function Home() {
 
   const calculateStats = useCallback((input: string) => {
     if (!wikiData) return;
-    
-    // Normalize both for comparison to handle different Vietnamese IMEs
-    const normalizedInput = input.normalize('NFC');
-    const targetText = wikiData.extract.normalize('NFC');
-    
-    let correctChars = 0;
-    const compareLength = Math.min(normalizedInput.length, targetText.length);
-    for (let i = 0; i < compareLength; i++) {
-      if (normalizedInput[i] === targetText[i]) {
-        correctChars++;
-      }
-    }
-
-    const acc = normalizedInput.length > 0 ? Math.round((correctChars / normalizedInput.length) * 100) : 0;
+    const norm = input.normalize('NFC');
+    const target = wikiData.extract.normalize('NFC');
+    let correct = 0;
+    const len = Math.min(norm.length, target.length);
+    for (let i = 0; i < len; i++) if (norm[i] === target[i]) correct++;
+    const acc = norm.length > 0 ? Math.round((correct / norm.length) * 100) : 0;
     let wpm = 0;
     if (startTime) {
-      const timeElapsedMinutes = (Date.now() - startTime) / 60000;
-      if (timeElapsedMinutes > 0) {
-        wpm = Math.round((correctChars / 5) / timeElapsedMinutes);
-      }
+      const mins = (Date.now() - startTime) / 60000;
+      if (mins > 0) wpm = Math.round((correct / 5) / mins);
     }
     setStats({ wpm, acc });
   }, [wikiData, startTime]);
 
   useEffect(() => {
     calculateStats(userInput);
-    
-    // Auto-scroll to caret (Vertical Only)
-    const caretElement = document.querySelector('.caret') as HTMLElement;
-    const workspace = document.querySelector('.typing-workspace') as HTMLElement;
-    
-    if (caretElement && workspace) {
-      const caretTop = caretElement.offsetTop;
-      const workspaceHeight = workspace.offsetHeight;
-      const scrollThreshold = workspaceHeight / 2;
-
-      if (caretTop > scrollThreshold) {
-        workspace.scrollTo({
-          top: caretTop - scrollThreshold,
-          behavior: 'smooth'
-        });
-      }
+    const caret = document.querySelector('.caret') as HTMLElement;
+    const area = typingAreaRef.current;
+    if (caret && area) {
+      const caretTop = caret.offsetTop;
+      const half = area.offsetHeight / 2;
+      if (caretTop > half) area.scrollTo({ top: caretTop - half, behavior: 'smooth' });
     }
   }, [userInput, calculateStats]);
 
   const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
-    const rawValue = e.currentTarget.value;
-    
-    if (finished || loading || !wikiData) {
-      e.currentTarget.value = '';
-      return;
-    }
-    
-    if (!isStarted && rawValue.length > 0) {
-      setIsStarted(true);
-      setStartTime(Date.now());
-    }
-
-    // Always normalize input to NFC for consistent internal state
-    const normalizedValue = rawValue.normalize('NFC');
-    setUserInput(normalizedValue);
-    calculateStats(normalizedValue);
-
-    if (normalizedValue.length >= wikiData.extract.length) {
-      finishTest();
-    }
+    const raw = e.currentTarget.value;
+    if (finished || loading || !wikiData) { e.currentTarget.value = ''; return; }
+    if (!isStarted && raw.length > 0) { setIsStarted(true); setStartTime(Date.now()); }
+    const norm = raw.normalize('NFC');
+    const target = wikiData.extract.normalize('NFC');
+    if (norm.length > 0) {
+      const last = norm.length - 1;
+      setHasError(norm[last] !== target[last]);
+    } else setHasError(false);
+    setUserInput(norm);
+    calculateStats(norm);
+    if (norm.length >= wikiData.extract.length) finishTest();
   };
 
   useEffect(() => {
-    const handleGlobalKeys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        loadNewText();
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') loadNewText();
       if (e.key === 'Tab') {
         e.preventDefault();
         const langs = ['vi', 'en', 'ja'];
-        const nextIdx = (langs.indexOf(language) + 1) % langs.length;
-        setLanguage(langs[nextIdx]);
+        setLanguage(langs[(langs.indexOf(language) + 1) % langs.length]);
       }
-      if (!finished && !loading) {
-        inputRef.current?.focus();
-      }
+      if (!finished && !loading) inputRef.current?.focus();
     };
-
-    window.addEventListener('keydown', handleGlobalKeys);
-    return () => window.removeEventListener('keydown', handleGlobalKeys);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [language, finished, loading, loadNewText]);
 
+  const timePercent = (timeLeft / 60) * 100;
+  const timerColor = timePercent > 50
+    ? 'linear-gradient(90deg,#7c3aed,#a78bfa)'
+    : timePercent > 20
+    ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+    : 'linear-gradient(90deg,#ef4444,#f87171)';
+
   return (
-    <div 
-      className="min-h-screen flex flex-col bg-background text-foreground relative font-pixel overflow-hidden"
+    <div
+      style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', cursor: 'text' }}
       onClick={() => inputRef.current?.focus()}
     >
+      {/* Orbs */}
+      <div style={{
+        position: 'fixed', top: '-160px', left: '-160px', width: '600px', height: '600px',
+        borderRadius: '9999px', filter: 'blur(120px)', pointerEvents: 'none', zIndex: 0, opacity: 0.35,
+        background: 'radial-gradient(circle, #7c3aed 0%, transparent 70%)',
+        animation: 'orb-drift 12s ease-in-out infinite alternate',
+      }} />
+      <div style={{
+        position: 'fixed', bottom: '-80px', right: '-80px', width: '500px', height: '500px',
+        borderRadius: '9999px', filter: 'blur(100px)', pointerEvents: 'none', zIndex: 0, opacity: 0.2,
+        background: 'radial-gradient(circle, #ec4899 0%, transparent 70%)',
+        animation: 'orb-drift 12s ease-in-out infinite alternate-reverse',
+      }} />
+
+      {/* Hidden input */}
       <textarea
         ref={inputRef}
         onInput={handleInput}
-        className="fixed left-0 top-0 w-full h-full opacity-0 cursor-default resize-none z-0"
+        style={{ position: 'fixed', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, zIndex: 1, resize: 'none', cursor: 'default' }}
         autoFocus
         spellCheck={false}
         autoComplete="off"
         aria-hidden="true"
       />
-      
-      {/* Top Header */}
-      <header className="w-full max-w-[1200px] mx-auto px-6 py-10 flex justify-between items-center z-20 pointer-events-none">
-        <div className="flex items-center gap-6">
-          <div className="w-14 h-14 bg-primary border-4 border-black shadow-[4px_4px_0px_#000] flex items-center justify-center">
-            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+
+      {/* Header */}
+      <header style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: '860px', margin: '0 auto', padding: '32px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'linear-gradient(135deg,#7c3aed,#ec4899)', boxShadow: '0 0 20px rgba(124,58,237,0.45)'
+          }}>
+            <svg style={{ width: '18px', height: '18px', color: 'white', fill: 'white' }} viewBox="0 0 24 24">
               <path d="M13 2H6v11h3v9l9-12h-5l3-8z" />
             </svg>
           </div>
-          <div className="pointer-events-auto">
-            <h1 className="text-4xl font-bold tracking-tighter text-white uppercase" style={{ textShadow: '4px 4px 0px #000' }}>TYPEFLOW</h1>
-            <p className="text-xs text-secondary font-bold uppercase tracking-widest mt-1">Retro Neural Engine v2.6</p>
+          <div>
+            <h1 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white', letterSpacing: '-0.02em', lineHeight: 1 }}>TypeFlow</h1>
+            <p style={{ fontSize: '0.6rem', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>Glass Edition</p>
           </div>
         </div>
 
-        <div className="flex gap-12 items-center pointer-events-auto">
-          <div className="flex gap-10" aria-label="Typing statistics">
+        {/* Right: Stats + Lang */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Stats card */}
+          <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '24px', padding: '10px 20px' }}>
             {[
-              { label: 'WPM', value: stats.wpm, color: 'text-primary' },
-              { label: 'ACC', value: stats.acc + '%', color: 'text-secondary' },
-              { label: 'TIME', value: timeLeft + 'S', color: 'text-white' },
-            ].map((item, i) => (
-              <div key={i} className="flex flex-col items-center">
-                <span className="text-xs font-bold text-sub uppercase mb-1">{item.label}</span>
-                <span className={`text-4xl font-bold ${item.color} tabular-nums`} style={{ textShadow: '2px 2px 0px #000' }}>{item.value}</span>
+              { label: 'WPM', value: stats.wpm, g: 'linear-gradient(135deg,#a78bfa,#818cf8)' },
+              { label: 'ACC', value: stats.acc + '%', g: 'linear-gradient(135deg,#34d399,#06b6d4)' },
+              { label: 'TIME', value: timeLeft + 's', g: 'linear-gradient(135deg,#fbbf24,#f59e0b)' },
+            ].map((s) => (
+              <div key={s.label} className="stat-card">
+                <span style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums', background: s.g, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                  {s.value}
+                </span>
+                <span className="stat-label">{s.label}</span>
               </div>
             ))}
           </div>
-          
-          <div className="flex bg-black border-4 border-black shadow-[4px_4px_0px_rgba(0,0,0,0.5)]">
-            {['vi', 'en', 'ja'].map((lang) => (
-              <button
-                key={lang}
-                onClick={() => setLanguage(lang)}
-                className={`px-6 py-2 text-sm font-bold uppercase transition-all ${
-                  language === lang 
-                    ? 'bg-primary text-white' 
-                    : 'text-sub hover:text-white hover:bg-white/5'
-                }`}
-              >
+
+          {/* Language */}
+          <div className="glass-card" style={{ display: 'flex', padding: '4px', gap: '2px' }}>
+            {['vi', 'en', 'ja'].map(lang => (
+              <button key={lang} className={`lang-btn ${language === lang ? 'active' : ''}`}
+                onClick={e => { e.stopPropagation(); setLanguage(lang); }}>
                 {lang}
               </button>
             ))}
@@ -222,98 +203,120 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Workspace */}
-      <main className="flex-1 flex flex-col items-center justify-center w-full px-6 z-10 -mt-10 pointer-events-none">
-        <div className="w-full max-w-[1200px] flex flex-col gap-12 items-center">
-          
-          <div 
-            className="typing-workspace w-full px-12 md:px-24 py-12 md:py-16 h-[400px] flex flex-col items-center relative overflow-y-auto custom-scrollbar pointer-events-auto"
+      {/* Timer bar */}
+      <div style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: '860px', margin: '0 auto', padding: '0 24px' }}>
+        <div style={{ height: '2px', width: '100%', borderRadius: '99px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', borderRadius: '99px', transition: 'width 1s linear, background 0.5s ease', width: `${timePercent}%`, background: timerColor }} />
+        </div>
+      </div>
+
+      {/* Main */}
+      <main style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+        <div style={{ width: '100%', maxWidth: '860px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* Typing Area */}
+          <div
+            ref={typingAreaRef}
+            className={`typing-area ${isStarted ? 'active' : ''}`}
+            style={{
+              height: '340px', padding: '36px 40px',
+              boxShadow: hasError ? '0 0 0 1px rgba(244,63,94,0.3), 0 20px 60px rgba(244,63,94,0.07)' : undefined,
+            }}
             aria-live="polite"
           >
             {loading ? (
-              <div className="flex-1 w-full flex flex-col items-center justify-center gap-6" role="status">
-                <div className="w-16 h-16 border-8 border-white/10 border-t-primary animate-[spin_1s_steps(8)_infinite]"></div>
-                <span className="text-xl font-bold text-primary tracking-widest uppercase animate-pulse">Syncing Wikipedia Context…</span>
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                <div className="spinner" />
+                <span style={{ fontSize: '0.8rem', fontWeight: 500, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.3)' }}>Fetching context…</span>
+              </div>
+            ) : finished ? (
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '28px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>Session Complete</p>
+                  <h2 style={{ fontSize: '2.5rem', fontWeight: 700, color: 'white' }}>Great job! 🎉</h2>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div className="result-stat">
+                    <span className="result-value" style={{ background: 'linear-gradient(135deg,#a78bfa,#818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{stats.wpm}</span>
+                    <span className="result-label">Words / Min</span>
+                  </div>
+                  <div style={{ width: '1px', height: '60px', background: 'rgba(255,255,255,0.08)' }} />
+                  <div className="result-stat">
+                    <span className="result-value" style={{ background: 'linear-gradient(135deg,#34d399,#06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{stats.acc}%</span>
+                    <span className="result-label">Accuracy</span>
+                  </div>
+                </div>
+                <button onClick={loadNewText} className="primary-btn">
+                  <svg style={{ width: '16px', height: '16px', fill: 'white' }} viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                  Try Again
+                </button>
               </div>
             ) : (
-              <div className="relative w-full text-left">
-                {finished ? (
-                  <div className="flex-1 w-full flex flex-col items-center justify-center gap-6 min-h-[300px] animate-in fade-in zoom-in duration-500">
-                    <h2 className="text-6xl font-bold text-secondary uppercase" style={{ textShadow: '4px 4px 0px #000' }}>Test Complete!</h2>
-                    <div className="flex gap-16 mt-4">
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm text-sub uppercase">Final Speed</span>
-                        <span className="text-7xl font-bold text-primary">{stats.wpm} WPM</span>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm text-sub uppercase">Accuracy</span>
-                        <span className="text-7xl font-bold text-secondary">{stats.acc}%</span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={loadNewText}
-                      className="pixel-btn mt-8 text-xl px-12 py-4 bg-primary text-white"
-                    >
-                      TRY AGAIN (ESC)
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-4xl md:text-5xl leading-[1.6] text-white/80 select-none text-left whitespace-pre-wrap break-words w-full">
-                    {wikiData?.extract.split('').map((char, index) => {
-                      const isCurrent = index === userInput.length;
-                      let colorClass = 'char-untyped';
-                      if (index < userInput.length) {
-                        colorClass = userInput[index] === char ? 'char-correct' : 'char-incorrect';
-                      }
-                      return (
-                        <span key={index} className={`relative ${colorClass}`}>{isCurrent && <span className="caret absolute left-0 top-[10%]"></span>}{char}</span>
-                      );
-                    })}
-                    {userInput.length === wikiData?.extract.length && (
-                      <span className="relative">
-                        <span className="caret absolute left-0 top-[10%]"></span>
-                        {' '}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+            <div className="font-mono-code" style={{ 
+              fontSize: '1.4rem', 
+              lineHeight: '1.6', 
+              letterSpacing: '0.02em', 
+              whiteSpace: 'pre-wrap', 
+              wordBreak: 'break-word', 
+              userSelect: 'none', 
+              width: '100%', 
+              textAlign: 'left' 
+            }}>
+              {wikiData?.extract.split('').map((char, i) => {
+                const isCurrent = i === userInput.length;
+                let cls = 'char-untyped';
+                if (i < userInput.length) cls = userInput[i] === char ? 'char-correct' : 'char-incorrect';
+                return (
+                  <span key={i} className={`relative ${cls}`}>
+                    {isCurrent && <span className="caret" style={{ position: 'absolute', left: 0, top: '15%', height: '70%' }} />}
+                    {char}
+                  </span>
+                );
+              })}
+              {userInput.length === wikiData?.extract.length && (
+                <span style={{ position: 'relative' }}>
+                  <span className="caret" style={{ position: 'absolute', left: 0, top: '15%', height: '70%' }} />
+                  {' '}
+                </span>
+              )}
+            </div>
             )}
           </div>
 
-          {!finished && (
-            <div className="w-full flex flex-col items-center gap-10">
-              <div className="pixel-card p-10 flex flex-col items-center w-full max-w-5xl pointer-events-auto">
-                <VirtualKeyboard />
-                
-                <div className="w-full mt-10 pt-10 border-t-4 border-black/20 flex justify-between items-center text-xs font-bold text-sub uppercase">
-                  <div className="flex gap-10 items-center">
-                    <span className="flex items-center gap-3">
-                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">ESC</kbd> RESTART
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">TAB</kbd> LANGUAGE
-                    </span>
-                  </div>
-                  
-                  <button
-                    onClick={loadNewText}
-                    className="pixel-btn text-white flex items-center gap-3"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-                    </svg>
-                    <span>REBOOT ENGINE</span>
-                  </button>
-                </div>
-              </div>
+          {/* Controls bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', color: 'rgba(255,255,255,0.3)' }}>
+              {[['ESC', 'Restart'], ['TAB', 'Language']].map(([k, label]) => (
+                <span key={k} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 500 }}>
+                  <kbd className="kbd">{k}</kbd>{label}
+                </span>
+              ))}
             </div>
-          )}
+            <button onClick={loadNewText} className="action-btn" style={{ pointerEvents: 'all' }}>
+              <svg style={{ width: '14px', height: '14px', fill: 'currentColor' }} viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+              New Text
+            </button>
+          </div>
+
+          {/* Start hint - Fixed position to avoid jumping */}
+          <div style={{ 
+            height: '20px', 
+            opacity: (!isStarted && !loading && !finished) ? 1 : 0, 
+            transition: 'opacity 0.3s ease',
+            textAlign: 'center' 
+          }}>
+            <p style={{ fontSize: '0.85rem', fontWeight: 500, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.05em' }}>
+              Bắt đầu gõ để khởi động bộ đếm thời gian ✦
+            </p>
+          </div>
         </div>
       </main>
 
-      <footer className="w-full py-6 text-center text-[10px] font-bold text-sub/30 uppercase tracking-[0.5em] mt-auto">
-        TypeFlow // 8-Bit High-Performance Typing Studio
+      {/* Footer */}
+      <footer style={{ position: 'relative', zIndex: 10, padding: '16px', textAlign: 'center' }}>
+        <p style={{ fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.2)' }}>
+          TypeFlow · Glass Edition · Wikipedia
+        </p>
       </footer>
     </div>
   );
