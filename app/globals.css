@@ -9,19 +9,20 @@
    ═══════════════════════════════════════════════ */
 
 @theme {
-  /* ── Serika Dark Core ── */
-  --color-bg:       #323437;
-  --color-surface:  #2c2e31;
-  --color-card:     #2c2e31;
-  --color-border:   #3a3c3f;
+  /* ── Sage Forest Core (matches page.tsx SK tokens) ── */
+  --color-bg:       #161e1b;   /* very dark sage */
+  --color-surface:  #1e2a25;   /* dark sage surface */
+  --color-card:     #1e2a25;
+  --color-border:   #2d3d37;   /* sage border */
 
   /* ── Text ── */
-  --color-text:     #d1d0c5;
-  --color-sub:      #646669;
-  --color-sub-alt:  #3a3c3f;
+  --color-text:     #EAE7D6;   /* cream — typed correct */
+  --color-sub:      #5D7B6F;   /* dark sage — untyped */
+  --color-sub-alt:  #2d3d37;
 
   /* ── Accents ── */
   --color-yellow:   #D7F9FA;   /* Icy Mint accent */
+  --color-primary:  #D7F9FA;   /* alias — used by Visualizer */
   --color-error:    #e07070;   /* Warm coral */
   --color-error-extra: #7e3030;
 
@@ -47,6 +48,14 @@
     0%, 100% { opacity: 1; }
     50%       { opacity: 0; }
   }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
 }
 
 @layer base {
@@ -55,8 +64,14 @@
     font-family: 'Inter', sans-serif;
   }
   ::selection {
-    background-color: rgba(226, 183, 20, 0.2);
-    color: #e2b714;
+    background-color: rgba(215, 249, 250, 0.15);
+    color: var(--color-yellow);
+  }
+  /* font-pixel fallback — used by Visualizer */
+  .font-pixel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.1em;
   }
 }
 
