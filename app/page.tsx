@@ -1,320 +1,489 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { fetchWikiPage, WikiPageData } from '@/utils/fetchWikiText';
-import { VirtualKeyboard } from '@/components/Keyboard/Visualizer';
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const LANGS     = ['vi', 'en', 'ja'] as const;
+const DURATIONS = [15, 30, 60]       as const;
+
+type Lang     = typeof LANGS[number];
+type Duration = typeof DURATIONS[number];
+
+interface HistoryEntry {
+  wpm:  number;
+  acc:  number;
+  date: string;
+}
+
+interface Stats {
+  wpm:   number;
+  acc:   number;
+  chars: number;
+}
+
+/** Sage Forest design tokens — single source of truth */
+const C = {
+  bg:      '#161e1b',
+  surface: '#1e2a25',
+  border:  '#2d3d37',
+  text:    '#EAE7D6',
+  sub:     '#5D7B6F',
+  accent:  '#D7F9FA',
+  error:   '#e07070',
+} as const;
+
+// ─── Shared style objects ─────────────────────────────────────────────────────
+
+const panelStyle: React.CSSProperties = {
+  background:    C.surface,
+  border:        `1px solid ${C.border}`,
+  borderRadius:  '1.25rem',
+  padding:       '1.75rem',
+  display:       'flex',
+  flexDirection: 'column',
+  gap:           '1.25rem',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize:      '0.6rem',
+  fontWeight:    700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.25em',
+  color:         C.sub,
+};
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const [wikiData, setWikiData] = useState<WikiPageData | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [language, setLanguage] = useState<string>('vi');
-  
-  const [userInput, setUserInput] = useState<string>('');
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [isStarted, setIsStarted] = useState<boolean>(false);
-  const [finished, setFinished] = useState<boolean>(false);
-  const [timeLeft, setTimeLeft] = useState<number>(30);
-  const [stats, setStats] = useState({ wpm: 0, acc: 0 });
-  
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // State
+  const [wikiData,   setWikiData]   = useState<WikiPageData | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [language,   setLanguage]   = useState<Lang>('vi');
+  const [duration,   setDuration]   = useState<Duration>(30);
+  const [userInput,  setUserInput]  = useState('');
+  const [startTime,  setStartTime]  = useState<number | null>(null);
+  const [isStarted,  setIsStarted]  = useState(false);
+  const [finished,   setFinished]   = useState(false);
+  const [timeLeft,   setTimeLeft]   = useState<number>(30);
+  const [stats,      setStats]      = useState<Stats>({ wpm: 0, acc: 0, chars: 0 });
+  const [caretPos,   setCaretPos]   = useState({ left: 0, top: 0, height: 24 });
+  const [history,    setHistory]    = useState<HistoryEntry[]>([]);
 
-  const loadNewText = useCallback(async () => {
+  // Refs
+  const timerRef    = useRef<NodeJS.Timeout | null>(null);
+  const inputRef    = useRef<HTMLTextAreaElement>(null);
+  const zoneRef     = useRef<HTMLDivElement>(null);
+  const charRefs    = useRef<(HTMLSpanElement | null)[]>([]);
+  const statsRef    = useRef<Stats>({ wpm: 0, acc: 0, chars: 0 }); // always-fresh stats for timer closure
+  const isEndingRef = useRef(false);                                // guard against double endTest()
+
+  // ── Load history from localStorage (client-only) ──────────────────────────
+  useEffect(() => {
+    const saved = localStorage.getItem('tf_history');
+    if (saved) setHistory(JSON.parse(saved));
+  }, []);
+
+  // ── Reset & fetch a new article ───────────────────────────────────────────
+  const load = useCallback(async (lang = language, dur = duration) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    isEndingRef.current = false;
+    statsRef.current    = { wpm: 0, acc: 0, chars: 0 };
+    charRefs.current    = [];
+
     setLoading(true);
     setFinished(false);
     setUserInput('');
     setStartTime(null);
     setIsStarted(false);
-    setTimeLeft(30);
-    setStats({ wpm: 0, acc: 0 });
-    
-    if (timerRef.current) clearInterval(timerRef.current);
+    setTimeLeft(dur);
+    setStats({ wpm: 0, acc: 0, chars: 0 });
 
     try {
-      const data = await fetchWikiPage(language);
+      const data = await fetchWikiPage(lang);
       setWikiData(data);
-      if (inputRef.current) {
-        inputRef.current.value = '';
-        setTimeout(() => inputRef.current?.focus(), 100);
-      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [language]);
 
+    setTimeout(() => inputRef.current?.focus(), 120);
+  }, [language, duration]);
 
+  useEffect(() => { load(); }, [load]);
+
+  // ── Countdown timer ───────────────────────────────────────────────────────
   useEffect(() => {
-    loadNewText();
-  }, [loadNewText]);
+    if (!isStarted || finished) return;
 
+    timerRef.current = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          endTest();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isStarted, finished]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Caret position tracking ───────────────────────────────────────────────
   useEffect(() => {
-    if (isStarted && timeLeft > 0 && !finished) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            finishTest();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+    const span = charRefs.current[userInput.length];
+    const zone = zoneRef.current;
+    if (!span || !zone) return;
+    const zr = zone.getBoundingClientRect();
+    const sr = span.getBoundingClientRect();
+    setCaretPos({ left: sr.left - zr.left, top: sr.top - zr.top, height: sr.height });
+  }, [userInput, wikiData]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { load(); return; }
+      if (!finished && !loading) inputRef.current?.focus();
     };
-  }, [isStarted, finished]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [finished, loading, load]);
 
-  const finishTest = () => {
-    setFinished(true);
-    if (timerRef.current) clearInterval(timerRef.current);
-  };
-
-  const calculateStats = useCallback((input: string) => {
+  // ── Scoring ───────────────────────────────────────────────────────────────
+  const calcStats = useCallback((inp: string) => {
     if (!wikiData) return;
-    
-    // Normalize both for comparison to handle different Vietnamese IMEs
-    const normalizedInput = input.normalize('NFC');
-    const targetText = wikiData.extract.normalize('NFC');
-    
-    let correctChars = 0;
-    const compareLength = Math.min(normalizedInput.length, targetText.length);
-    for (let i = 0; i < compareLength; i++) {
-      if (normalizedInput[i] === targetText[i]) {
-        correctChars++;
-      }
+    const norm = inp.normalize('NFC');
+    const tgt  = wikiData.extract.normalize('NFC');
+    let correct = 0;
+    for (let i = 0; i < Math.min(norm.length, tgt.length); i++) {
+      if (norm[i] === tgt[i]) correct++;
     }
-
-    const acc = normalizedInput.length > 0 ? Math.round((correctChars / normalizedInput.length) * 100) : 0;
+    const acc = norm.length > 0 ? Math.round((correct / norm.length) * 100) : 0;
     let wpm = 0;
     if (startTime) {
-      const timeElapsedMinutes = (Date.now() - startTime) / 60000;
-      if (timeElapsedMinutes > 0) {
-        wpm = Math.round((correctChars / 5) / timeElapsedMinutes);
-      }
+      const minutes = (Date.now() - startTime) / 60_000;
+      if (minutes > 0) wpm = Math.round((correct / 5) / minutes);
     }
-    setStats({ wpm, acc });
+    const next: Stats = { wpm, acc, chars: norm.length };
+    statsRef.current = next; // sync ref before setState to avoid stale closure in timer
+    setStats(next);
   }, [wikiData, startTime]);
 
-  useEffect(() => {
-    calculateStats(userInput);
-    
-    // Auto-scroll to caret (Vertical Only)
-    const caretElement = document.querySelector('.caret') as HTMLElement;
-    const workspace = document.querySelector('.typing-workspace') as HTMLElement;
-    
-    if (caretElement && workspace) {
-      const caretTop = caretElement.offsetTop;
-      const workspaceHeight = workspace.offsetHeight;
-      const scrollThreshold = workspaceHeight / 2;
+  // ── End test & save history ───────────────────────────────────────────────
+  const endTest = useCallback(() => {
+    if (isEndingRef.current) return; // prevent double-fire from timer ticking at t=0
+    isEndingRef.current = true;
 
-      if (caretTop > scrollThreshold) {
-        workspace.scrollTo({
-          top: caretTop - scrollThreshold,
-          behavior: 'smooth'
-        });
-      }
+    setFinished(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    const { wpm, acc, chars } = statsRef.current; // read ref — never stale
+    if (wpm > 0 || chars > 0) {
+      const entry: HistoryEntry = {
+        wpm,
+        acc,
+        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setHistory(prev => {
+        const updated = [entry, ...prev].slice(0, 6);
+        localStorage.setItem('tf_history', JSON.stringify(updated));
+        return updated;
+      });
     }
-  }, [userInput, calculateStats]);
+  }, []);
 
+  // ── Input handler ─────────────────────────────────────────────────────────
   const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
-    const rawValue = e.currentTarget.value;
-    
-    if (finished || loading || !wikiData) {
-      e.currentTarget.value = '';
-      return;
-    }
-    
-    if (!isStarted && rawValue.length > 0) {
-      setIsStarted(true);
-      setStartTime(Date.now());
-    }
-
-    // Always normalize input to NFC for consistent internal state
-    const normalizedValue = rawValue.normalize('NFC');
-    setUserInput(normalizedValue);
-    calculateStats(normalizedValue);
-
-    if (normalizedValue.length >= wikiData.extract.length) {
-      finishTest();
-    }
+    const raw = e.currentTarget.value;
+    if (finished || loading || !wikiData) { e.currentTarget.value = ''; return; }
+    if (!isStarted && raw.length > 0) { setIsStarted(true); setStartTime(Date.now()); }
+    const norm = raw.normalize('NFC');
+    setUserInput(norm);
+    calcStats(norm);
+    if (norm.length >= wikiData.extract.length) endTest();
   };
 
-  useEffect(() => {
-    const handleGlobalKeys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        loadNewText();
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const langs = ['vi', 'en', 'ja'];
-        const nextIdx = (langs.indexOf(language) + 1) % langs.length;
-        setLanguage(langs[nextIdx]);
-      }
-      if (!finished && !loading) {
-        inputRef.current?.focus();
-      }
-    };
+  // ── Derived values ────────────────────────────────────────────────────────
+  const characters = useMemo(() => wikiData?.extract.split('') ?? [], [wikiData]);
+  const pct        = (timeLeft / duration) * 100;
+  const barColor   = pct > 40 ? C.accent : pct > 15 ? '#e6a817' : C.error;
 
-    window.addEventListener('keydown', handleGlobalKeys);
-    return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, [language, finished, loading, loadNewText]);
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div 
-      className="min-h-screen flex flex-col bg-background text-foreground relative font-pixel overflow-hidden"
+    <div
+      style={{ minHeight: '100vh', background: C.bg, color: C.text, display: 'flex', flexDirection: 'column', fontFamily: "'Inter', sans-serif", overflow: 'hidden', position: 'relative' }}
       onClick={() => inputRef.current?.focus()}
     >
+      {/* Background orbs */}
+      <div className="orb" style={{ width: 700, height: 700, top: -200, left: -150, background: 'radial-gradient(circle, rgba(215,249,250,0.04), transparent 70%)', filter: 'blur(80px)' }} />
+      <div className="orb" style={{ width: 500, height: 500, bottom: -100, right: -100, background: 'radial-gradient(circle, rgba(215,249,250,0.03), transparent 70%)', filter: 'blur(80px)', animationDelay: '-10s' }} />
+
+      {/* Hidden capture input */}
       <textarea
         ref={inputRef}
         onInput={handleInput}
-        className="fixed left-0 top-0 w-full h-full opacity-0 cursor-default resize-none z-0"
-        autoFocus
-        spellCheck={false}
-        autoComplete="off"
-        aria-hidden="true"
+        style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', left: 0, top: 0 }}
+        autoFocus spellCheck={false} autoComplete="off"
       />
-      
-      {/* Top Header */}
-      <header className="w-full max-w-[1200px] mx-auto px-6 py-10 flex justify-between items-center z-20 pointer-events-none">
-        <div className="flex items-center gap-6">
-          <div className="w-14 h-14 bg-primary border-4 border-black shadow-[4px_4px_0px_#000] flex items-center justify-center">
-            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M13 2H6v11h3v9l9-12h-5l3-8z" />
-            </svg>
-          </div>
-          <div className="pointer-events-auto">
-            <h1 className="text-4xl font-bold tracking-tighter text-white uppercase" style={{ textShadow: '4px 4px 0px #000' }}>TYPEFLOW</h1>
-            <p className="text-xs text-secondary font-bold uppercase tracking-widest mt-1">Retro Neural Engine v2.6</p>
-          </div>
-        </div>
 
-        <div className="flex gap-12 items-center pointer-events-auto">
-          <div className="flex gap-10" aria-label="Typing statistics">
-            {[
-              { label: 'WPM', value: stats.wpm, color: 'text-primary' },
-              { label: 'ACC', value: stats.acc + '%', color: 'text-secondary' },
-              { label: 'TIME', value: timeLeft + 'S', color: 'text-white' },
-            ].map((item, i) => (
-              <div key={i} className="flex flex-col items-center">
-                <span className="text-xs font-bold text-sub uppercase mb-1">{item.label}</span>
-                <span className={`text-4xl font-bold ${item.color} tabular-nums`} style={{ textShadow: '2px 2px 0px #000' }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-          
-          <div className="flex bg-black border-4 border-black shadow-[4px_4px_0px_rgba(0,0,0,0.5)]">
-            {['vi', 'en', 'ja'].map((lang) => (
-              <button
-                key={lang}
-                onClick={() => setLanguage(lang)}
-                className={`px-6 py-2 text-sm font-bold uppercase transition-all ${
-                  language === lang 
-                    ? 'bg-primary text-white' 
-                    : 'text-sub hover:text-white hover:bg-white/5'
-                }`}
-              >
-                {lang}
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+      {/* 3-column grid */}
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '300px 1fr 300px', gap: '1.5rem', maxWidth: 1700, margin: '0 auto', width: '100%', padding: '2.5rem 2rem', height: '100vh' }}>
 
-      {/* Main Workspace */}
-      <main className="flex-1 flex flex-col items-center justify-center w-full px-6 z-10 -mt-10 pointer-events-none">
-        <div className="w-full max-w-[1200px] flex flex-col gap-12 items-center">
-          
-          <div 
-            className="typing-workspace w-full px-12 md:px-24 py-12 md:py-16 h-[400px] flex flex-col items-center relative overflow-y-auto custom-scrollbar pointer-events-auto"
-            aria-live="polite"
-          >
-            {loading ? (
-              <div className="flex-1 w-full flex flex-col items-center justify-center gap-6" role="status">
-                <div className="w-16 h-16 border-8 border-white/10 border-t-primary animate-[spin_1s_steps(8)_infinite]"></div>
-                <span className="text-xl font-bold text-primary tracking-widest uppercase animate-pulse">Syncing Wikipedia Context…</span>
-              </div>
-            ) : (
-              <div className="relative w-full text-left">
-                {finished ? (
-                  <div className="flex-1 w-full flex flex-col items-center justify-center gap-6 min-h-[300px] animate-in fade-in zoom-in duration-500">
-                    <h2 className="text-6xl font-bold text-secondary uppercase" style={{ textShadow: '4px 4px 0px #000' }}>Test Complete!</h2>
-                    <div className="flex gap-16 mt-4">
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm text-sub uppercase">Final Speed</span>
-                        <span className="text-7xl font-bold text-primary">{stats.wpm} WPM</span>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm text-sub uppercase">Accuracy</span>
-                        <span className="text-7xl font-bold text-secondary">{stats.acc}%</span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={loadNewText}
-                      className="pixel-btn mt-8 text-xl px-12 py-4 bg-primary text-white"
-                    >
-                      TRY AGAIN (ESC)
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-4xl md:text-5xl leading-[1.6] text-white/80 select-none text-left whitespace-pre-wrap break-words w-full">
-                    {wikiData?.extract.split('').map((char, index) => {
-                      const isCurrent = index === userInput.length;
-                      let colorClass = 'char-untyped';
-                      if (index < userInput.length) {
-                        colorClass = userInput[index] === char ? 'char-correct' : 'char-incorrect';
-                      }
-                      return (
-                        <span key={index} className={`relative ${colorClass}`}>{isCurrent && <span className="caret absolute left-0 top-[10%]"></span>}{char}</span>
-                      );
-                    })}
-                    {userInput.length === wikiData?.extract.length && (
-                      <span className="relative">
-                        <span className="caret absolute left-0 top-[10%]"></span>
-                        {' '}
-                      </span>
-                    )}
+        {/* ── LEFT: Wiki card ── */}
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden' }}>
+
+          {/* Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: `${C.accent}22`, border: `1px solid ${C.accent}44`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M13 2H6v11h3v9l9-12h-5l3-8z" fill={C.accent} />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: '1.1rem', letterSpacing: '-0.03em', lineHeight: 1.1 }}>TypeFlow</div>
+              <div style={{ ...labelStyle, paddingBottom: 0 }}>Sage Forest</div>
+            </div>
+          </div>
+
+          {/* Article info */}
+          <div style={{ ...panelStyle, flex: 1, overflow: 'hidden' }}>
+            {wikiData && !loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflow: 'auto' }}>
+                {wikiData.thumbnail && (
+                  <div style={{ position: 'relative', borderRadius: '0.75rem', overflow: 'hidden', height: 160 }}>
+                    <img src={wikiData.thumbnail.source} alt={wikiData.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(to top, ${C.surface}, transparent)` }} />
                   </div>
                 )}
+                <div>
+                  <div style={{ ...labelStyle, color: C.accent, marginBottom: 4 }}>Article</div>
+                  <h3 style={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{wikiData.title}</h3>
+                  {wikiData.description && (
+                    <p style={{ fontSize: '0.75rem', color: C.sub, marginTop: 4, fontStyle: 'italic' }}>{wikiData.description}</p>
+                  )}
+                </div>
+                <p style={{ fontSize: '0.8rem', lineHeight: 1.6, color: C.sub, flex: 1, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical' }}>
+                  {wikiData.extract}
+                </p>
+                {wikiData.content_urls?.desktop.page && (
+                  <a
+                    href={wikiData.content_urls.desktop.page}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ ...labelStyle, color: C.sub, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginTop: 'auto', paddingTop: 8, borderTop: `1px solid ${C.border}` }}
+                  >
+                    Read on Wikipedia →
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+                <div style={{ width: 28, height: 28, border: `2px solid ${C.border}`, borderTopColor: C.accent, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                <span style={{ ...labelStyle, letterSpacing: '0.3em' }}>Loading…</span>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* ── CENTER: Typing area ── */}
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingTop: '0.5rem', minHeight: 0 }}>
+
+          {/* Controls bar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingInline: 4, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="sk-tab-group">
+                {DURATIONS.map(d => (
+                  <button key={d} className={`sk-tab ${duration === d ? 'active' : ''}`}
+                    onClick={e => { e.stopPropagation(); setDuration(d); load(language, d); }}>
+                    {d}s
+                  </button>
+                ))}
+              </div>
+              <div style={{ width: 1, height: 20, background: C.border }} />
+              <div className="sk-tab-group">
+                {LANGS.map(l => (
+                  <button key={l} className={`sk-tab ${language === l ? 'active' : ''}`}
+                    onClick={e => { e.stopPropagation(); setLanguage(l); }}>
+                    {l.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => load()}
+              title="Restart (ESC)"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, color: C.sub, display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+              </svg>
+              Restart
+            </button>
+          </div>
+
+          {/* Live metrics (visible while typing) */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, opacity: isStarted && !finished ? 1 : 0, transform: isStarted && !finished ? 'none' : 'translateY(-8px)', transition: 'all 0.4s ease', pointerEvents: 'none', height: 60, flexShrink: 0 }}>
+            <div className="sk-metric"><span className="sk-val">{stats.wpm}</span><span className="sk-label">wpm</span></div>
+            <div className="sk-metric"><span className="sk-val">{stats.acc}%</span><span className="sk-label">acc</span></div>
+            <div className="sk-metric"><span className="sk-val">{timeLeft}</span><span className="sk-label">sec</span></div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="sk-track" style={{ flexShrink: 0 }}>
+            <div className="sk-fill" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+          </div>
+
+          {/* Main panel */}
+          <div style={{ ...panelStyle, flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
+            {loading ? (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ ...labelStyle, letterSpacing: '0.4em', animation: 'pulse 2s infinite' }}>Fetching content…</span>
+              </div>
+            ) : finished ? (
+              <ResultScreen stats={stats} onRetry={load} accent={C.accent} sub={C.sub} text={C.text} />
+            ) : (
+              <>
+                <div ref={zoneRef} className="sk-typing" style={{ overflow: 'auto', height: '100%' }}>
+                  <div className="sk-caret" style={{ left: caretPos.left, top: caretPos.top + caretPos.height * 0.1, height: caretPos.height * 0.8 }} />
+                  {characters.map((ch, i) => {
+                    const cls = i < userInput.length
+                      ? (userInput[i] === ch ? 'c-correct' : 'c-wrong')
+                      : 'c-untyped';
+                    return <span key={i} ref={el => { charRefs.current[i] = el; }} className={cls}>{ch}</span>;
+                  })}
+                </div>
+                {!isStarted && (
+                  <div style={{ position: 'absolute', bottom: 24, left: 0, right: 0, textAlign: 'center', pointerEvents: 'none' }}>
+                    <span style={{ ...labelStyle, letterSpacing: '0.35em' }}>start typing to begin</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer: source & shortcuts */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingInline: 4, opacity: 0.5 }}>
+            {wikiData && !loading
+              ? <span style={{ ...labelStyle, letterSpacing: '0.2em' }}>{wikiData.title}</span>
+              : <span />
+            }
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: '0.65rem', color: C.sub, fontWeight: 700 }}>
+              <span className="sk-kbd">ESC</span><span style={{ marginLeft: -10 }}>reset</span>
+            </div>
+          </div>
+        </main>
+
+        {/* ── RIGHT: History & tips ── */}
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden' }}>
+          <div style={{ ...labelStyle, paddingBottom: 8 }}>Recent Sessions</div>
+
+          {/* History list */}
+          <div style={{ ...panelStyle, flex: 1, overflow: 'hidden', padding: '1rem', minHeight: 0 }}>
+            {history.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', maxHeight: '100%', paddingRight: 4 }}>
+                {history.map((entry, i) => (
+                  <HistoryCard key={`${entry.date}-${i}`} entry={entry} accent={C.accent} sub={C.sub} text={C.text} border={C.border} />
+                ))}
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.3 }}>
+                <span style={{ ...labelStyle, letterSpacing: '0.3em', textAlign: 'center' }}>No sessions yet</span>
               </div>
             )}
           </div>
 
-          {!finished && (
-            <div className="w-full flex flex-col items-center gap-10">
-              <div className="pixel-card p-10 flex flex-col items-center w-full max-w-5xl pointer-events-auto">
-                <VirtualKeyboard />
-                
-                <div className="w-full mt-10 pt-10 border-t-4 border-black/20 flex justify-between items-center text-xs font-bold text-sub uppercase">
-                  <div className="flex gap-10 items-center">
-                    <span className="flex items-center gap-3">
-                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">ESC</kbd> RESTART
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <kbd className="bg-black text-white px-3 py-1 border-2 border-white/20">TAB</kbd> LANGUAGE
-                    </span>
-                  </div>
-                  
-                  <button
-                    onClick={loadNewText}
-                    className="pixel-btn text-white flex items-center gap-3"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-                    </svg>
-                    <span>REBOOT ENGINE</span>
-                  </button>
+          {/* Shortcuts reference */}
+          <div style={{ ...panelStyle, background: `${C.accent}08`, border: `1px solid ${C.accent}22`, gap: '1rem' }}>
+            <div style={{ ...labelStyle, color: C.accent, letterSpacing: '0.3em', fontWeight: 800 }}>Quick Reference</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+              {SHORTCUTS.map(([key, desc]) => (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: C.sub }}>{desc}</span>
+                  <span className="sk-kbd">{key}</span>
                 </div>
-              </div>
+              ))}
             </div>
-          )}
-        </div>
-      </main>
+          </div>
+        </aside>
 
-      <footer className="w-full py-6 text-center text-[10px] font-bold text-sub/30 uppercase tracking-[0.5em] mt-auto">
-        TypeFlow // 8-Bit High-Performance Typing Studio
-      </footer>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const SHORTCUTS: [string, string][] = [
+  ['ESC',   'Restart session'],
+  ['Click', 'Focus input'],
+];
+
+function ResultScreen({ stats, onRetry, accent, sub, text }: {
+  stats:   Stats;
+  onRetry: () => void;
+  accent:  string;
+  sub:     string;
+  text:    string;
+}) {
+  return (
+    <div className="sk-result" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2.5rem' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4em', color: accent, marginBottom: 16 }}>
+          Test Complete
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'center' }}>
+          <span style={{ fontFamily: "'JetBrains Mono'", fontSize: '6rem', fontWeight: 900, lineHeight: 1, color: accent }}>{stats.wpm}</span>
+          <span style={{ fontSize: '1.5rem', fontWeight: 700, color: sub }}>WPM</span>
+        </div>
+        <div style={{ display: 'flex', gap: 32, justifyContent: 'center', marginTop: 12 }}>
+          <StatItem label="Accuracy" value={`${stats.acc}%`} text={text} sub={sub} />
+          <StatItem label="Chars"    value={`${stats.chars}`} text={text} sub={sub} />
+        </div>
+      </div>
+      <button onClick={onRetry} className="sk-btn">
+        Try Again
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function StatItem({ label, value, text, sub }: { label: string; value: string; text: string; sub: string }) {
+  return (
+    <div>
+      <span style={{ fontWeight: 800, fontSize: '1.25rem', color: text }}>{value}</span>
+      <span style={{ fontSize: '0.65rem', display: 'block', color: sub, textTransform: 'uppercase', letterSpacing: '0.2em' }}>{label}</span>
+    </div>
+  );
+}
+
+function HistoryCard({ entry, accent, sub, text, border }: {
+  entry:  HistoryEntry;
+  accent: string;
+  sub:    string;
+  text:   string;
+  border: string;
+}) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: `1px solid ${border}`, borderRadius: '0.75rem', flexShrink: 0 }}>
+      <div>
+        <div style={{ fontFamily: "'JetBrains Mono'", fontWeight: 900, fontSize: '1.1rem', color: text }}>
+          {entry.wpm} <span style={{ fontSize: '0.6rem', color: sub, fontWeight: 700 }}>WPM</span>
+        </div>
+        <div style={{ fontSize: '0.6rem', color: sub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>
+          {entry.date}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontFamily: "'JetBrains Mono'", fontSize: '0.85rem', fontWeight: 800, color: accent }}>{entry.acc}%</div>
+        <div style={{ fontSize: '0.55rem', color: sub, fontWeight: 700, textTransform: 'uppercase' }}>ACC</div>
+      </div>
     </div>
   );
 }

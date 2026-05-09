@@ -1,178 +1,227 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
+
 @import "tailwindcss";
 
-:root {
-  --bg: #1e1e2e;
-  --card-bg: #181825;
-  --primary: #cba6f7; /* Mauve */
-  --secondary: #a6e3a1; /* Green */
-  --accent: #89b4fa; /* Blue */
-  --text: #cdd6f4;
-  --subtext: #6c7086;
-  --pixel-border: 4px;
+/* ═══════════════════════════════════════════════
+   TYPEFLOW — Serika Dark
+   Clean, focused, zero-noise.
+   ═══════════════════════════════════════════════ */
+
+@theme {
+  /* ── Sage Forest Core (matches page.tsx SK tokens) ── */
+  --color-bg:       #161e1b;   /* very dark sage */
+  --color-surface:  #1e2a25;   /* dark sage surface */
+  --color-card:     #1e2a25;
+  --color-border:   #2d3d37;   /* sage border */
+
+  /* ── Text ── */
+  --color-text:     #EAE7D6;   /* cream — typed correct */
+  --color-sub:      #5D7B6F;   /* dark sage — untyped */
+  --color-sub-alt:  #2d3d37;
+
+  /* ── Accents ── */
+  --color-yellow:   #D7F9FA;   /* Icy Mint accent */
+  --color-primary:  #D7F9FA;   /* alias — used by Visualizer */
+  --color-error:    #e07070;   /* Warm coral */
+  --color-error-extra: #7e3030;
+
+  /* ── Easings ── */
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+
+  /* ── Animations ── */
+  --animate-drift: drift 20s ease-in-out infinite;
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0); }
+    33%  { transform: translate(40px, -40px); }
+    66%  { transform: translate(-20px, 20px); }
+  }
+
+  --animate-slide-up: slide-up 0.5s var(--ease-out-expo) forwards;
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  --animate-caret-blink: caret-blink 1s step-end infinite;
+  @keyframes caret-blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
 }
 
-@theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --color-primary: var(--primary);
-  --color-secondary: var(--secondary);
-  --color-accent: var(--accent);
-  --color-sub: var(--subtext);
-  
-  --font-pixel: var(--font-vt323), 'Courier New', monospace;
+@layer base {
+  body {
+    @apply bg-bg text-text antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+  ::selection {
+    background-color: rgba(215, 249, 250, 0.15);
+    color: var(--color-yellow);
+  }
+  /* font-pixel fallback — used by Visualizer */
+  .font-pixel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.1em;
+  }
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  image-rendering: pixelated;
+@layer components {
+  /* Subtle background orb */
+  .orb {
+    @apply absolute rounded-full animate-drift;
+    pointer-events: none;
+  }
+
+  /* ── Glass-style panels on Serika ── */
+  .sk-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 1.5rem;
+    padding: 2rem;
+  }
+
+  /* ── Pill tabs ── */
+  .sk-tab-group {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    background: rgba(0,0,0,0.15);
+    border-radius: 0.75rem;
+  }
+  .sk-tab {
+    @apply px-4 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-widest transition-all duration-200;
+    color: var(--color-sub);
+  }
+  .sk-tab:hover { color: var(--color-text); }
+  .sk-tab.active {
+    background: var(--color-yellow);
+    color: var(--color-bg);
+    font-weight: 900;
+  }
+
+  /* ── Metric ── */
+  .sk-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.25rem 2rem;
+    background: rgba(0,0,0,0.1);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    min-width: 120px;
+  }
+  .sk-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.5rem;
+    font-weight: 900;
+    line-height: 1;
+    color: var(--color-yellow);
+    font-variant-numeric: tabular-nums;
+  }
+  .sk-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--color-sub);
+    margin-top: 0.375rem;
+  }
+
+  /* ── Progress bar ── */
+  .sk-track {
+    height: 4px;
+    width: 100%;
+    background: var(--color-sub-alt);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .sk-fill {
+    height: 100%;
+    background: var(--color-yellow);
+    border-radius: 9999px;
+    transition: width 1s linear, background-color 1s ease;
+  }
+
+  /* ── Typing area ── */
+  .sk-typing {
+    position: relative;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    line-height: 2.2;
+    letter-spacing: 0.02em;
+    color: var(--color-sub);
+    user-select: none;
+  }
+
+  /* Char states */
+  .c-correct  { color: var(--color-text); }
+  .c-wrong    { color: var(--color-error); }
+  .c-wrong-extra { color: var(--color-error-extra); }
+  .c-untyped  { color: var(--color-sub); }
+
+  /* ── Caret ── */
+  .sk-caret {
+    position: absolute;
+    width: 2px;
+    background: var(--color-yellow);
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(215, 249, 250, 0.3);
+    transition: left 0.08s linear, top 0.08s linear;
+    animation: caret-blink 1s step-end infinite;
+  }
+
+  /* ── Kbd hint ── */
+  .sk-kbd {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.375rem;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--color-border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--color-sub);
+  }
+
+  /* ── Action button ── */
+  .sk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 2rem;
+    border-radius: 0.75rem;
+    background: var(--color-yellow);
+    color: var(--color-bg);
+    font-weight: 900;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: all 150ms ease;
+    border: none;
+    cursor: pointer;
+  }
+  .sk-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .sk-btn:active { transform: translateY(0); }
+
+  /* Result screen */
+  .sk-result { animation: slide-up 0.5s var(--ease-out-expo) forwards; }
 }
 
-body {
-  background-color: var(--bg);
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 20px 20px;
-  color: var(--text);
-  font-family: var(--font-pixel);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  scroll-behavior: smooth;
-  text-rendering: optimizeLegibility;
-  overflow-x: hidden;
-  position: relative;
-}
-
-/* CRT Scanlines Effect */
-body::before {
-  content: " ";
-  display: block;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  right: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
-  z-index: 100;
-  background-size: 100% 4px, 3px 100%;
-  pointer-events: none;
-  opacity: 0.5;
-}
-
-/* Subtle CRT Flicker */
-@keyframes flicker {
-  0% { opacity: 0.97; }
-  5% { opacity: 0.95; }
-  10% { opacity: 0.9; }
-  15% { opacity: 0.95; }
-  20% { opacity: 0.98; }
-  25% { opacity: 0.95; }
-  30% { opacity: 0.9; }
-  100% { opacity: 0.98; }
-}
-
-body::after {
-  content: " ";
-  display: block;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  right: 0;
-  background: rgba(18, 16, 16, 0.03);
-  opacity: 0;
-  z-index: 101;
-  pointer-events: none;
-  animation: flicker 0.15s infinite;
-}
-
-/* Pixel Art Card Style */
-.pixel-card {
-  background: var(--card-bg);
-  border: var(--pixel-border) solid #000;
-  box-shadow: 
-    8px 8px 0px rgba(0, 0, 0, 0.4),
-    inset -4px -4px 0px rgba(0, 0, 0, 0.1);
-  position: relative;
-}
-
-.pixel-card::after {
-  content: '';
-  position: absolute;
-  top: -4px; left: -4px; right: -4px; bottom: -4px;
-  border: 4px solid rgba(255, 255, 255, 0.02);
-  pointer-events: none;
-}
-
-.typing-workspace {
-  background: var(--card-bg);
-  border: 4px solid #000;
-  box-shadow: 8px 8px 0px rgba(0, 0, 0, 0.4);
-  position: relative;
-  padding: 20px 30px;
-}
-
-/* Pixel Cursor */
-.caret {
-  display: inline-block;
-  width: 1ch; /* Use character width for perfect alignment */
-  height: 1.2em;
-  background: var(--primary);
-  opacity: 0.6;
-  vertical-align: text-bottom;
-  animation: pixel-blink 0.8s steps(2, start) infinite;
-  pointer-events: none;
-}
-
-@keyframes pixel-blink {
-  to { visibility: hidden; }
-}
-
-.char-untyped {
-  color: var(--subtext);
-}
-
-.char-correct {
-  color: var(--secondary);
-  text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.5);
-}
-
-.char-incorrect {
-  color: var(--primary);
-  background: rgba(249, 38, 114, 0.2);
-  text-decoration: none;
-  border-bottom: 4px solid var(--primary);
-}
-
-/* Custom Pixel Scrollbar - Hidden but scrollable */
-.custom-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari and Opera */
-}
-
-/* Pixel Button Style */
-.pixel-btn {
-  background: #444;
-  border: 4px solid #000;
-  box-shadow: 4px 4px 0px #000;
-  padding: 8px 16px;
-  transition: all 0.1s;
-  position: relative;
-}
-
-.pixel-btn:active {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0px #000;
-}
-
-.pixel-btn.active {
-  background: var(--primary);
-  color: white;
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
