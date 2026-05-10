@@ -32,7 +32,7 @@ export function TypingArea({
 }: TypingAreaProps) {
   return (
     <>
-      <div ref={zoneRef} className="sk-typing" style={{ overflow: 'auto', height: '100%' }}>
+      <div ref={zoneRef} className="sk-typing no-scrollbar" style={{ overflow: 'auto', height: '100%' }}>
         <Caret {...caretPos} />
         <CharacterDisplay
           characters={characters}

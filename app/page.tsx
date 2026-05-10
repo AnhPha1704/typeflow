@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { C, LANGS, DURATIONS, SHORTCUTS, Lang, Duration, Stats, HistoryEntry } from '@/lib/constants';
+import { C, LANGS, DURATIONS, MODES, Lang, Duration, Mode, Stats, HistoryEntry } from '@/lib/constants';
 import { useTypingTest }         from '@/hooks/useTypingTest';
 import { useCaretPosition }      from '@/hooks/useCaretPosition';
 import { useHistory }            from '@/hooks/useHistory';
@@ -17,6 +17,7 @@ export default function Home() {
   // ── Config state ──────────────────────────────────────────────────────────
   const [language, setLanguage] = useState<Lang>('vi');
   const [duration, setDuration] = useState<Duration>(30);
+  const [mode,     setMode]     = useState<Mode>('wikipedia');
 
   // ── History ───────────────────────────────────────────────────────────────
   const { history, addEntry } = useHistory();
@@ -24,19 +25,23 @@ export default function Home() {
   // ── Typing test ───────────────────────────────────────────────────────────
   const handleTestEnd = useCallback((stats: Stats) => {
     const entry: HistoryEntry = {
-      wpm:  stats.wpm,
-      acc:  stats.acc,
-      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      wpm:         stats.wpm,
+      acc:         stats.acc,
+      date:        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      duration,
+      lang:        language,
+      mode,
+      wpmTimeline: stats.wpmTimeline,
     };
     addEntry(entry);
-  }, [addEntry]);
+  }, [addEntry, duration, language, mode]);
 
   const {
     wikiData, loading,
     userInput, isStarted, finished, timeLeft, stats, characters,
     inputRef, charRefs,
     load, handleInput,
-  } = useTypingTest({ language, duration, onTestEnd: handleTestEnd });
+  } = useTypingTest({ language, duration, mode, onTestEnd: handleTestEnd });
 
   // ── Caret ─────────────────────────────────────────────────────────────────
   const zoneRef   = useRef<HTMLDivElement>(null);
@@ -51,8 +56,9 @@ export default function Home() {
   useKeyboardShortcuts({ onReset: () => load(), inputRef, isFinished: finished, isLoading: loading });
 
   // ── Handlers for Controls ─────────────────────────────────────────────────
-  const handleDuration = (d: Duration) => { setDuration(d); load(language, d); };
-  const handleLanguage = (l: Lang)     => { setLanguage(l); load(l, duration); };
+  const handleDuration = (d: Duration) => { setDuration(d); load(language, d, mode); };
+  const handleLanguage = (l: Lang)     => { setLanguage(l); load(l, duration, mode); };
+  const handleMode     = (m: Mode)     => { setMode(m); load(language, duration, m); };
 
   // ── Progress bar ──────────────────────────────────────────────────────────
   const pct      = (timeLeft / duration) * 100;
@@ -67,6 +73,8 @@ export default function Home() {
     display:       'flex',
     flexDirection: 'column',
     gap:           '1.25rem',
+    boxSizing:     'border-box',
+    width:         '100%',
   };
 
   const labelStyle: React.CSSProperties = {
@@ -80,7 +88,7 @@ export default function Home() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div
-      style={{ minHeight: '100vh', background: C.bg, color: C.text, display: 'flex', flexDirection: 'column', fontFamily: "'Inter', sans-serif", overflow: 'hidden', position: 'relative' }}
+      style={{ height: '100vh', background: C.bg, color: C.text, display: 'flex', flexDirection: 'column', fontFamily: "'Inter', sans-serif", overflow: 'hidden', position: 'relative' }}
       onClick={() => inputRef.current?.focus()}
     >
       {/* Background orbs */}
@@ -96,12 +104,12 @@ export default function Home() {
       />
 
       {/* 3-column grid */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '300px 1fr 300px', gap: '1.5rem', maxWidth: 1700, margin: '0 auto', width: '100%', padding: '2.5rem 2rem', height: '100vh' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 300px', gap: '1.5rem', maxWidth: 1700, margin: '0 auto', width: '100%', padding: '2rem', height: '100%', boxSizing: 'border-box' }}>
 
         {/* ── LEFT: Wiki sidebar ── */}
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden' }}>
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden', height: '100%' }}>
           {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8, flexShrink: 0 }}>
             <div style={{ width: 40, height: 40, borderRadius: 10, background: `${C.accent}22`, border: `1px solid ${C.accent}44`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M13 2H6v11h3v9l9-12h-5l3-8z" fill={C.accent} />
@@ -117,15 +125,19 @@ export default function Home() {
         </aside>
 
         {/* ── CENTER: Typing area ── */}
-        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingTop: '0.5rem', minHeight: 0 }}>
+        <main style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0, height: '100%', overflow: 'hidden' }}>
 
-          <Controls
-            language={language}
-            duration={duration}
-            onLanguage={handleLanguage}
-            onDuration={handleDuration}
-            onRestart={() => load()}
-          />
+          <div style={{ flexShrink: 0 }}>
+            <Controls
+              language={language}
+              duration={duration}
+              mode={mode}
+              onLanguage={handleLanguage}
+              onDuration={handleDuration}
+              onMode={handleMode}
+              onRestart={() => load()}
+            />
+          </div>
 
           <LiveMetrics stats={stats} timeLeft={timeLeft} isStarted={isStarted} finished={finished} />
 
@@ -157,7 +169,7 @@ export default function Home() {
           </div>
 
           {/* Footer */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingInline: 4, opacity: 0.5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingInline: 4, opacity: 0.5, flexShrink: 0 }}>
             {wikiData && !loading
               ? <span style={{ ...labelStyle, letterSpacing: '0.2em' }}>{wikiData.title}</span>
               : <span />

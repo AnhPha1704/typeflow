@@ -1,23 +1,27 @@
 'use client';
 
 import React from 'react';
-import { C, LANGS, DURATIONS, Lang, Duration } from '@/lib/constants';
+import { C, LANGS, DURATIONS, MODES, Lang, Duration, Mode } from '@/lib/constants';
 import { TabGroup } from '@/components/ui/TabGroup';
 import { Kbd } from '@/components/ui/Kbd';
 
 interface ControlsProps {
   language:   Lang;
   duration:   Duration;
+  mode:       Mode;
   onLanguage: (l: Lang) => void;
   onDuration: (d: Duration) => void;
+  onMode:     (m: Mode) => void;
   onRestart:  () => void;
 }
 
 export function Controls({
   language,
   duration,
+  mode,
   onLanguage,
   onDuration,
+  onMode,
   onRestart,
 }: ControlsProps) {
   return (
@@ -30,6 +34,15 @@ export function Controls({
     }}>
       {/* Left: duration + lang selectors */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <TabGroup<Mode>
+          options={MODES}
+          value={mode}
+          format={m => m.toUpperCase()}
+          onChange={onMode}
+        />
+
+        <div style={{ width: 1, height: 20, background: C.border }} />
+
         <TabGroup<Duration>
           options={DURATIONS}
           value={duration}

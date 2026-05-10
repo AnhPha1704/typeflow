@@ -16,40 +16,50 @@ function HistoryCard({ entry, index }: HistoryCardProps) {
     <div
       style={{
         display:        'flex',
-        justifyContent: 'space-between',
-        alignItems:     'center',
+        flexDirection:  'column',
+        gap:            '0.5rem',
         padding:        '0.75rem 1rem',
         background:     'rgba(255,255,255,0.03)',
         border:         `1px solid ${C.border}`,
         borderRadius:   '0.75rem',
         flexShrink:     0,
-        // Stagger entrance animation
         animation:      `slide-up 0.4s var(--ease-out-expo) ${index * 40}ms both`,
       }}
     >
-      <div>
-        <div style={{ fontFamily: "'JetBrains Mono'", fontWeight: 900, fontSize: '1.1rem', color: C.text }}>
-          {entry.wpm}{' '}
-          <span style={{ fontSize: '0.6rem', color: C.sub, fontWeight: 700 }}>WPM</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontFamily: "'JetBrains Mono'", fontWeight: 900, fontSize: '1.1rem', color: C.text }}>
+            {entry.wpm}{' '}
+            <span style={{ fontSize: '0.6rem', color: C.sub, fontWeight: 700 }}>WPM</span>
+          </div>
+          <div style={{
+            fontSize:      '0.55rem',
+            color:         C.sub,
+            fontWeight:    800,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            marginTop:     2,
+            display:       'flex',
+            gap:           6,
+          }}>
+            <span style={{ color: C.accent }}>{entry.mode}</span>
+            <span>•</span>
+            <span>{entry.lang}</span>
+            <span>•</span>
+            <span>{entry.duration}s</span>
+          </div>
         </div>
-        <div style={{
-          fontSize:      '0.6rem',
-          color:         C.sub,
-          fontWeight:    700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-          marginTop:     2,
-        }}>
-          {entry.date}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontFamily: "'JetBrains Mono'", fontSize: '0.85rem', fontWeight: 800, color: C.accent }}>
+            {entry.acc}%
+          </div>
+          <div style={{ fontSize: '0.55rem', color: C.sub, fontWeight: 700, textTransform: 'uppercase' }}>
+            ACC
+          </div>
         </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontFamily: "'JetBrains Mono'", fontSize: '0.85rem', fontWeight: 800, color: C.accent }}>
-          {entry.acc}%
-        </div>
-        <div style={{ fontSize: '0.55rem', color: C.sub, fontWeight: 700, textTransform: 'uppercase' }}>
-          ACC
-        </div>
+      <div style={{ fontSize: '0.5rem', color: C.sub, fontWeight: 600, textAlign: 'right', opacity: 0.6 }}>
+        {entry.date}
       </div>
     </div>
   );
@@ -81,13 +91,13 @@ interface HistoryPanelProps {
 
 export function HistoryPanel({ history }: HistoryPanelProps) {
   return (
-    <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden' }}>
+    <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden', height: '100%' }}>
       <div style={{ ...labelStyle, paddingBottom: 8 }}>Recent Sessions</div>
 
       {/* History list */}
       <div style={{ ...panelStyle, flex: 1, overflow: 'hidden', padding: '1rem', minHeight: 0 }}>
         {history.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', maxHeight: '100%', paddingRight: 4 }}>
+          <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', maxHeight: '100%', paddingRight: 0 }}>
             {history.map((entry, i) => (
               <HistoryCard key={`${entry.date}-${i}`} entry={entry} index={i} />
             ))}
