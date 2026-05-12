@@ -30,23 +30,43 @@ export function WpmChart({ timeline, width = 600, height = 200 }: WpmChartProps)
 
     if (timeline.length < 2) return;
 
-    const maxWpm = Math.max(...timeline, 100);
+    const maxData = Math.max(...timeline, 0);
+    const maxWpm = maxData < 20 ? 20 : Math.ceil(maxData * 1.2);
     const minWpm = 0;
-    const padding = 20;
+    
+    // Asymmetric padding to fit labels
+    const pLeft = 20;
+    const pRight = 20;
+    const pTop = 20;
+    const pBottom = 30;
 
-    const getX = (i: number) => (i / (timeline.length - 1)) * (width - padding * 2) + padding;
-    const getY = (wpm: number) => height - ((wpm - minWpm) / (maxWpm - minWpm)) * (height - padding * 2) - padding;
+    const getX = (i: number) => (i / Math.max(timeline.length - 1, 1)) * (width - pLeft - pRight) + pLeft;
+    const getY = (wpm: number) => height - ((wpm - minWpm) / (maxWpm - minWpm)) * (height - pTop - pBottom) - pBottom;
 
-    // Draw grid lines
+    ctx.font = '10px "Inter", sans-serif';
+    ctx.fillStyle = C.sub;
+
+    // Draw horizontal grid lines (without Y labels)
     ctx.strokeStyle = `${C.border}44`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 0; i <= 4; i++) {
-      const y = getY(minWpm + (maxWpm - minWpm) * (i / 4));
-      ctx.moveTo(padding, y);
-      ctx.lineTo(width - padding, y);
+      const wpmVal = minWpm + (maxWpm - minWpm) * (i / 4);
+      const y = getY(wpmVal);
+      ctx.moveTo(pLeft, y);
+      ctx.lineTo(width - pRight, y);
     }
     ctx.stroke();
+
+    // Draw X labels (Time in seconds)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const interval = Math.max(1, Math.floor(timeline.length / 5));
+    for (let i = 0; i < timeline.length; i++) {
+      if (i === 0 || i === timeline.length - 1 || i % interval === 0) {
+        ctx.fillText(`${i}s`, getX(i), height - pBottom + 10);
+      }
+    }
 
     // Draw average line
     const avg = timeline.reduce((a, b) => a + b, 0) / timeline.length;
@@ -54,13 +74,13 @@ export function WpmChart({ timeline, width = 600, height = 200 }: WpmChartProps)
     ctx.setLineDash([5, 5]);
     ctx.strokeStyle = `${C.sub}66`;
     ctx.beginPath();
-    ctx.moveTo(padding, avgY);
-    ctx.lineTo(width - padding, avgY);
+    ctx.moveTo(pLeft, avgY);
+    ctx.lineTo(width - pRight, avgY);
     ctx.stroke();
     ctx.setLineDash([]);
 
     // Draw area gradient
-    const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
+    const gradient = ctx.createLinearGradient(0, pTop, 0, height - pBottom);
     gradient.addColorStop(0, `${C.accent}33`);
     gradient.addColorStop(1, 'transparent');
 
@@ -70,8 +90,8 @@ export function WpmChart({ timeline, width = 600, height = 200 }: WpmChartProps)
     for (let i = 1; i < timeline.length; i++) {
       ctx.lineTo(getX(i), getY(timeline[i]));
     }
-    ctx.lineTo(getX(timeline.length - 1), height - padding);
-    ctx.lineTo(getX(0), height - padding);
+    ctx.lineTo(getX(timeline.length - 1), height - pBottom);
+    ctx.lineTo(getX(0), height - pBottom);
     ctx.closePath();
     ctx.fill();
 

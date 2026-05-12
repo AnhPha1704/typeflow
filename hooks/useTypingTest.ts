@@ -23,15 +23,15 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
   const [finished,    setFinished]    = useState(false);
   const [timeLeft,    setTimeLeft]    = useState<number>(duration);
   const [stats,       setStats]       = useState<Stats>({ wpm: 0, acc: 0, chars: 0, wpmTimeline: [] });
-  const [wpmTimeline, setWpmTimeline] = useState<number[]>([]);
 
   // ── Refs (avoid stale closures) ─────────────────────────────────────────────
-  const timerRef    = useRef<NodeJS.Timeout | null>(null);
-  const inputRef    = useRef<HTMLTextAreaElement>(null);
-  const charRefs    = useRef<(HTMLSpanElement | null)[]>([]);
-  const statsRef    = useRef<Stats>({ wpm: 0, acc: 0, chars: 0, wpmTimeline: [] });
-  const isEndingRef = useRef(false);
-  const loadIdRef   = useRef(0);
+  const timerRef     = useRef<NodeJS.Timeout | null>(null);
+  const inputRef     = useRef<HTMLTextAreaElement>(null);
+  const charRefs     = useRef<(HTMLSpanElement | null)[]>([]);
+  const statsRef     = useRef<Stats>({ wpm: 0, acc: 0, chars: 0, wpmTimeline: [] });
+  const isEndingRef  = useRef(false);
+  const loadIdRef    = useRef(0);
+  const userInputRef = useRef('');
 
   // ── Characters array (memoised) ─────────────────────────────────────────────
   const characters = useMemo(() => wikiData?.extract.split('') ?? [], [wikiData]);
@@ -59,9 +59,10 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
     const currentLoadId = ++loadIdRef.current;
 
     if (timerRef.current) clearInterval(timerRef.current);
-    isEndingRef.current = false;
-    statsRef.current    = { wpm: 0, acc: 0, chars: 0, wpmTimeline: [] };
-    charRefs.current    = [];
+    isEndingRef.current  = false;
+    statsRef.current     = { wpm: 0, acc: 0, chars: 0, wpmTimeline: [] };
+    userInputRef.current = '';
+    charRefs.current     = [];
 
     setLoading(true);
     setFinished(false);
@@ -70,7 +71,6 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
     setIsStarted(false);
     setTimeLeft(dur);
     setStats({ wpm: 0, acc: 0, chars: 0, wpmTimeline: [] });
-    setWpmTimeline([]);
 
     try {
       const data = await getTextSource(md, lang);
@@ -103,25 +103,29 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
     timerRef.current = setInterval(() => {
       setTimeLeft(t => {
         if (t <= 1) {
-          endTest();
+          setTimeout(endTest, 0);
           return 0;
         }
         return t - 1;
       });
 
       // Record WPM for timeline
-      if (startTime) {
-        const currentWpm = statsRef.current.wpm;
-        setWpmTimeline(prev => {
-          const next = [...prev, currentWpm];
-          statsRef.current.wpmTimeline = next;
+      if (startTime && wikiData) {
+        const elapsedMs = Date.now() - startTime;
+        const correct = countCorrect(userInputRef.current, wikiData.extract);
+        const currentWpm = calcWPM(correct, elapsedMs);
+
+        setStats(prev => {
+          const nextTimeline = [...prev.wpmTimeline, currentWpm];
+          const next: Stats = { ...prev, wpm: currentWpm, wpmTimeline: nextTimeline };
+          statsRef.current = next;
           return next;
         });
       }
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isStarted, finished, startTime, endTest]);
+  }, [isStarted, finished, startTime, wikiData, endTest]);
 
   // ── Scoring ──────────────────────────────────────────────────────────────────
   const recalcStats = useCallback((inp: string) => {
@@ -129,10 +133,13 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
     const correct = countCorrect(inp, wikiData.extract);
     const acc     = calcAccuracy(inp, wikiData.extract);
     const wpm     = startTime ? calcWPM(correct, Date.now() - startTime) : 0;
-    const next: Stats = { wpm, acc, chars: inp.normalize('NFC').length, wpmTimeline };
-    statsRef.current = next;
-    setStats(next);
-  }, [wikiData, startTime, wpmTimeline]);
+    
+    setStats(prev => {
+      const next: Stats = { wpm, acc, chars: inp.normalize('NFC').length, wpmTimeline: prev.wpmTimeline };
+      statsRef.current = next;
+      return next;
+    });
+  }, [wikiData, startTime]);
 
   // ── Input handler ─────────────────────────────────────────────────────────────
   const handleInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
@@ -144,6 +151,7 @@ export function useTypingTest({ language, duration, mode, onTestEnd }: UseTyping
     }
     const norm = raw.normalize('NFC');
     setUserInput(norm);
+    userInputRef.current = norm;
     recalcStats(norm);
     if (norm.length >= wikiData.extract.length) endTest();
   }, [finished, loading, wikiData, isStarted, recalcStats, endTest]);

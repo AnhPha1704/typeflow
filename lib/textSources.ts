@@ -3,7 +3,7 @@ import { fetchWikiPage, WikiPageData } from '@/utils/fetchWikiText';
 import { QUOTES } from './quotes';
 import { WORDS } from './words';
 
-export async function getTextSource(mode: Mode, lang: Lang): Promise<WikiPageData> {
+export async function getTextSource(mode: Mode, lang: Lang): Promise<WikiPageData | null> {
   if (mode === 'wikipedia') {
     return await fetchWikiPage(lang);
   }
@@ -14,6 +14,7 @@ export async function getTextSource(mode: Mode, lang: Lang): Promise<WikiPageDat
     return {
       title: 'Famous Quote',
       extract: text,
+      lang: lang
     };
   }
 
@@ -28,6 +29,7 @@ export async function getTextSource(mode: Mode, lang: Lang): Promise<WikiPageDat
     return {
       title: 'Random Words',
       extract: selected.join(' '),
+      lang: lang
     };
   }
 

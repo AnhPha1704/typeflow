@@ -68,7 +68,7 @@ export function ResultScreen({ stats, onRetry }: ResultScreenProps) {
         </div>
 
         {/* Secondary stats */}
-        <div style={{ display: 'flex', gap: 32, justifyContent: 'center', marginTop: 12, marginBottom: 32 }}>
+        <div style={{ display: 'flex', gap: 32, justifyContent: 'center', marginTop: 12, marginBottom: 16 }}>
           <StatItem label="Accuracy" value={`${stats.acc}%`} />
           <StatItem label="Chars"    value={`${stats.chars}`} />
         </div>
