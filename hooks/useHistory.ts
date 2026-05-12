@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { HistoryEntry, HISTORY_KEY, HISTORY_MAX } from '@/lib/constants';
 
 export function useHistory() {
@@ -16,7 +16,7 @@ export function useHistory() {
     }
   }, []);
 
-  function addEntry(entry: HistoryEntry) {
+  const addEntry = useCallback((entry: HistoryEntry) => {
     setHistory(prev => {
       const updated = [entry, ...prev].slice(0, HISTORY_MAX);
       try {
@@ -26,7 +26,7 @@ export function useHistory() {
       }
       return updated;
     });
-  }
+  }, []);
 
   return { history, addEntry };
 }

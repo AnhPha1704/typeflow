@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { C, Stats } from '@/lib/constants';
+import { WpmChart } from './WpmChart';
 
 interface ResultScreenProps {
   stats:   Stats;
@@ -35,10 +36,11 @@ export function ResultScreen({ stats, onRetry }: ResultScreenProps) {
         flexDirection:  'column',
         alignItems:     'center',
         justifyContent: 'center',
-        gap:            '2.5rem',
+        gap:            '2rem',
+        padding:        '1rem',
       }}
     >
-      <div style={{ textAlign: 'center' }}>
+      <div style={{ textAlign: 'center', width: '100%' }}>
         {/* Label */}
         <div style={{
           fontSize:      '0.65rem',
@@ -55,20 +57,25 @@ export function ResultScreen({ stats, onRetry }: ResultScreenProps) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'center' }}>
           <span style={{
             fontFamily: "'JetBrains Mono'",
-            fontSize:   '6rem',
+            fontSize:   '5rem',
             fontWeight: 900,
             lineHeight: 1,
             color:      C.accent,
           }}>
             {stats.wpm}
           </span>
-          <span style={{ fontSize: '1.5rem', fontWeight: 700, color: C.sub }}>WPM</span>
+          <span style={{ fontSize: '1.25rem', fontWeight: 700, color: C.sub }}>WPM</span>
         </div>
 
         {/* Secondary stats */}
-        <div style={{ display: 'flex', gap: 32, justifyContent: 'center', marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 32, justifyContent: 'center', marginTop: 12, marginBottom: 16 }}>
           <StatItem label="Accuracy" value={`${stats.acc}%`} />
           <StatItem label="Chars"    value={`${stats.chars}`} />
+        </div>
+
+        {/* WPM Chart */}
+        <div style={{ width: '100%', maxWidth: 600, margin: '0 auto' }}>
+          <WpmChart timeline={stats.wpmTimeline} />
         </div>
       </div>
 

@@ -2,22 +2,29 @@
 
 export const LANGS = ['vi', 'en', 'ja'] as const;
 export const DURATIONS = [15, 30, 60] as const;
+export const MODES = ['wikipedia', 'quotes', 'words'] as const;
 
 export type Lang = typeof LANGS[number];
 export type Duration = typeof DURATIONS[number];
+export type Mode = typeof MODES[number];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Stats {
-  wpm:   number;
-  acc:   number;
-  chars: number;
+  wpm:         number;
+  acc:         number;
+  chars:       number;
+  wpmTimeline: number[];
 }
 
 export interface HistoryEntry {
-  wpm:  number;
-  acc:  number;
-  date: string;
+  wpm:         number;
+  acc:         number;
+  date:        string;
+  duration:    number;
+  lang:        Lang;
+  mode:        Mode;
+  wpmTimeline: number[];
 }
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────

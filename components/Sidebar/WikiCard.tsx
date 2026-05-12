@@ -45,7 +45,7 @@ export function WikiCard({ data, loading }: WikiCardProps) {
 
   return (
     <div style={{ ...panelStyle, flex: 1, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflow: 'auto' }}>
+      <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflow: 'auto' }}>
         {/* Thumbnail */}
         {data.thumbnail && (
           <div style={{ position: 'relative', borderRadius: '0.75rem', overflow: 'hidden', height: 160 }}>
